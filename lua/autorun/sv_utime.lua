@@ -2,37 +2,43 @@
 module( "Utime", package.seeall )
 if not SERVER then return end
 
+require("tmysql4")
+
+include("utime_mysql.lua")
+
+local dbconn, err = tmysql.Connect(UTimeDB.Hostname, UTimeDB.Username, UTimeDB.Password, UTimeDB.DBName, UTimeDB.Port, nil, CLIENT_MULTI_STATEMENTS)
+
+if err then error(err) end
+
 utime_welcome = CreateConVar( "utime_welcome", "1", FCVAR_ARCHIVE )
 
-if not sql.TableExists( "utime" ) then
-	sql.Query( "CREATE TABLE IF NOT EXISTS utime ( id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, player INTEGER NOT NULL, totaltime INTEGER NOT NULL, lastvisit INTEGER NOT NULL );" )
-	sql.Query( "CREATE INDEX IDX_UTIME_PLAYER ON utime ( player DESC );" )
-end
+dbconn:Query("CREATE TABLE IF NOT EXISTS utime (steamid BIGINT(20) NOT NULL PRIMARY KEY, totaltime INTEGER NOT NULL, lastvisit INTEGER NOT NULL)")
 
 function onJoin( ply )
-	local uid = ply:UniqueID()
-	local row = sql.QueryRow( "SELECT totaltime, lastvisit FROM utime WHERE player = " .. uid .. ";" )
-	local time = 0 
-
-	if row then
-		if utime_welcome:GetBool() then
-			ULib.tsay( ply, "[UTime]Welcome back " .. ply:Nick() .. ", you last played on this server " .. os.date( "%c", row.lastvisit ) )
+	local uid = ply:SteamID64()
+	local row = dbconn:Query( "SELECT totaltime, lastvisit FROM utime WHERE steamid = " .. uid .. " LIMIT 1;", function(result)
+		PrintTable(result)
+		local time = 0
+		if table.Count(result[1].data) > 0 then
+			if utime_welcome:GetBool() then
+				ULib.tsay( ply, "[UTime]Welcome back " .. ply:Nick() .. ", you last played on this server " .. os.date( "%c", result[1].data[1].lastvisit ) )
+			end
+			dbconn:Query("UPDATE utime SET lastvisit = "..os.time().." WHERE steamid="..uid..";")
+			time = result[1].data[1].totaltime
+		else
+			if utime_welcome:GetBool() then
+				ULib.tsay( ply, "[UTime]Welcome to our server " .. ply:Nick() .. "!" )
+			end
+			dbconn:Query("INSERT INTO utime (steamid, totaltime, lastvisit) VALUES ("..uid..", 0, "..os.time()..");")
 		end
-		sql.Query( "UPDATE utime SET lastvisit = " .. os.time() .. " WHERE player = " .. uid .. ";" )
-		time = row.totaltime
-	else
-		if utime_welcome:GetBool() then
-			ULib.tsay( ply, "[UTime]Welcome to our server " .. ply:Nick() .. "!" )
-		end
-		sql.Query( "INSERT into utime ( player, totaltime, lastvisit ) VALUES ( " .. uid .. ", 0, " .. os.time() .. " );" )
-	end
-	ply:SetUTime( time )
-	ply:SetUTimeStart( CurTime() )
+		ply:SetUTime(time)
+		ply:SetUTimeStart(CurTime())
+	end)
 end
 hook.Add( "PlayerInitialSpawn", "UTimeInitialSpawn", onJoin )
 
 function updatePlayer( ply )
-	sql.Query( "UPDATE utime SET totaltime = " .. math.floor( ply:GetUTimeTotalTime() ) .. " WHERE player = " .. ply:UniqueID() .. ";" )
+	dbconn:Query( "UPDATE utime SET totaltime = " .. math.floor( ply:GetUTimeTotalTime() ) .. " WHERE steamid = " .. ply:SteamID64() .. ";" )
 end
 hook.Add( "PlayerDisconnected", "UTimeDisconnect", updatePlayer )
 
