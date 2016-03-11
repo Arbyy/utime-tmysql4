@@ -17,7 +17,6 @@ dbconn:Query("CREATE TABLE IF NOT EXISTS utime (steamid BIGINT(20) NOT NULL PRIM
 function onJoin( ply )
 	local uid = ply:SteamID64()
 	local row = dbconn:Query( "SELECT totaltime, lastvisit FROM utime WHERE steamid = " .. uid .. " LIMIT 1;", function(result)
-		PrintTable(result)
 		local time = 0
 		if table.Count(result[1].data) > 0 then
 			if utime_welcome:GetBool() then
